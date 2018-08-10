@@ -8,24 +8,24 @@ const redis = require('redis')
 const convert = require('koa-convert');
 const client = redis.createClient(6379, '127.0.0.1')
 var options = { client: client };
-
+const core = require('./core')
 var store = RedisStore(options);
 
 Date.prototype.Format = function (fmt) { // author: meizz
   var o = {
-      "M+": this.getMonth() + 1, // 月份
-      "d+": this.getDate(), // 日
-      "h+": this.getHours(), // 小时
-      "m+": this.getMinutes(), // 分
-      "s+": this.getSeconds(), // 秒
-      "q+": Math.floor((this.getMonth() + 3) / 3), // 季度
-      "S": this.getMilliseconds() // 毫秒
+    "M+": this.getMonth() + 1, // 月份
+    "d+": this.getDate(), // 日
+    "h+": this.getHours(), // 小时
+    "m+": this.getMinutes(), // 分
+    "s+": this.getSeconds(), // 秒
+    "q+": Math.floor((this.getMonth() + 3) / 3), // 季度
+    "S": this.getMilliseconds() // 毫秒
   };
   if (/(y+)/.test(fmt))
-      fmt = fmt.replace(RegExp.$1, (this.getFullYear() + "").substr(4 - RegExp.$1.length));
+    fmt = fmt.replace(RegExp.$1, (this.getFullYear() + "").substr(4 - RegExp.$1.length));
   for (var k in o)
-      if (new RegExp("(" + k + ")").test(fmt)) fmt = fmt.replace(RegExp.$1, (RegExp.$1.length == 1) ? (o[k]) : (("00" + o[k]).substr(("" + o[k]).length)));
-          return fmt;
+    if (new RegExp("(" + k + ")").test(fmt)) fmt = fmt.replace(RegExp.$1, (RegExp.$1.length == 1) ? (o[k]) : (("00" + o[k]).substr(("" + o[k]).length)));
+  return fmt;
 }
 const app = new Koa();
 // app.use(session({
@@ -96,7 +96,7 @@ let sleep = (ms) => {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
 let processer = async () => {
-  const browser = await puppeteer.launch();
+  const browser = await puppeteer.launch({ headless: false });
   let currentPage = null
   while (true) {
     let data = await store.client.lpop('listtest')
@@ -111,11 +111,11 @@ let processer = async () => {
     switch (data.actualType) {
       case 'start':
         console.log('instart')
-        console.log(data, data.id)
+        // console.log(data, data.id)
         try {
           currentPage = await browser.newPage();
           // await store.client.hset(data.id, 'start', 'success')
-          await store.client.hset(data.id, data.feId, generateReturnObj('success','start'))
+          await store.client.hset(data.id, data.feId, generateReturnObj('success', 'start'))
         }
         catch (err) {
           await store.client.hset(data.id, data.feId, generateReturnObj('error', 'start'))
@@ -124,48 +124,79 @@ let processer = async () => {
         break
       case 'openPage':
         try {
-          await currentPage.goto(data.data.url)
-          // await store.client.hset(data.id, 'openPage', 'success')
+          let ret = await core('openPage', { currentPage, url: data.data.url })
+          //todo:打开失败的判断
           await store.client.hset(data.id, data.feId, generateReturnObj('success', 'openPage'))
-          console.log(`finish openPage ${data.data.url}`)
         }
         catch (err) {
-          console.log(err)
           await store.client.hset(data.id, data.feId, generateReturnObj('error', 'openPage'))
+        }
+        break
+      case 'input':
+
+        try {
+          let xpath = data.data.xpath
+          let value = data.data.value
+          let ret = await core('input', { currentPage, xpath, value })
+          //todo:打开失败的判断
+          await store.client.hset(data.id, data.feId, generateReturnObj('success', 'input'))
+        }
+        catch (err) {
+          await store.client.hset(data.id, data.feId, generateReturnObj('error', 'input'))
+        }
+        break
+      case 'sleep':
+
+        try {
+          let time = data.data.time
+          let ret = await core('sleep', { currentPage, time })
+          //todo:打开失败的判断
+          await store.client.hset(data.id, data.feId, generateReturnObj('success', 'sleep'))
+        }
+        catch (err) {
+          await store.client.hset(data.id, data.feId, generateReturnObj('error', 'sleep'))
+        }
+        break
+      case 'click':
+        try {
+          let xpath = data.data.xpath
+
+          let ret = await core('click', { currentPage, xpath })
+          //todo:打开失败的判断
+          await store.client.hset(data.id, data.feId, generateReturnObj('success', 'click'))
+        }
+        catch (err) {
+          await store.client.hset(data.id, data.feId, generateReturnObj('error', 'click'))
         }
         break
       case 'getData':
         try {
-          console.log(data.data.xpath)
           let xpath = data.data.xpath
           let varible = data.data.varible
-          let retData = await currentPage.evaluate((xpath) => {
-            return document.querySelector(xpath).innerHTML
-          }, xpath)
-          // await store.client.hset(data.id, 'getData', JSON.stringify({ [varible]: retData }))
-          await store.client.hset(data.id, data.feId,generateReturnObj(JSON.stringify({[varible]: retData }),'getData'))
-          console.log(`finish getData ${varible} ${retData}`)
+          let retData = await core('getData', { currentPage, xpath })
+          await store.client.hset(data.id, data.feId, generateReturnObj(JSON.stringify({ [varible]: retData }), 'getData'))
         }
         catch (err) {
-          await store.client.hset(data.id, data.feId,   generateReturnObj('error', 'getData'))
+          await store.client.hset(data.id, data.feId, generateReturnObj(err, 'getData'))
         }
         break
       case 'end':
         try {
-          await currentPage.close()
+          // await currentPage.close()
+          await core('end', { currentPage })
           // await store.client.hset(data.id, 'end', 'success')
           await store.client.hset(data.id, data.feId, generateReturnObj('success', 'end'))
           console.log(`finish end`)
         }
-        catch(err){
-          await store.client.hset(data.id, data.feId,  generateReturnObj('error', 'end'))
+        catch (err) {
+          await store.client.hset(data.id, data.feId, generateReturnObj('error', 'end'))
         }
         break
     }
   }
 }
 
-generateReturnObj = (message, method)=>{
+generateReturnObj = (message, method) => {
   let orginObj = {}
   orginObj.data = message
   orginObj.time = new Date().Format("yyyy-MM-dd hh:mm:ss.S")
