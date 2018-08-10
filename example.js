@@ -11,7 +11,22 @@ var options = { client: client };
 
 var store = RedisStore(options);
 
-
+Date.prototype.Format = function (fmt) { // author: meizz
+  var o = {
+      "M+": this.getMonth() + 1, // 月份
+      "d+": this.getDate(), // 日
+      "h+": this.getHours(), // 小时
+      "m+": this.getMinutes(), // 分
+      "s+": this.getSeconds(), // 秒
+      "q+": Math.floor((this.getMonth() + 3) / 3), // 季度
+      "S": this.getMilliseconds() // 毫秒
+  };
+  if (/(y+)/.test(fmt))
+      fmt = fmt.replace(RegExp.$1, (this.getFullYear() + "").substr(4 - RegExp.$1.length));
+  for (var k in o)
+      if (new RegExp("(" + k + ")").test(fmt)) fmt = fmt.replace(RegExp.$1, (RegExp.$1.length == 1) ? (o[k]) : (("00" + o[k]).substr(("" + o[k]).length)));
+          return fmt;
+}
 const app = new Koa();
 // app.use(session({
 //   store: store
@@ -100,10 +115,10 @@ let processer = async () => {
         try {
           currentPage = await browser.newPage();
           // await store.client.hset(data.id, 'start', 'success')
-          await store.client.hset(data.id, data.feId, 'success')
+          await store.client.hset(data.id, data.feId, generateReturnObj('success','start'))
         }
         catch (err) {
-          await store.client.hset(data.id, data.feId, 'error')
+          await store.client.hset(data.id, data.feId, generateReturnObj('error', 'start'))
         }
         console.log('finish start')
         break
@@ -111,11 +126,12 @@ let processer = async () => {
         try {
           await currentPage.goto(data.data.url)
           // await store.client.hset(data.id, 'openPage', 'success')
-          await store.client.hset(data.id, data.feId, 'success')
+          await store.client.hset(data.id, data.feId, generateReturnObj('success', 'openPage'))
           console.log(`finish openPage ${data.data.url}`)
         }
         catch (err) {
-          await store.client.hset(data.id, data.feId, 'error')
+          console.log(err)
+          await store.client.hset(data.id, data.feId, generateReturnObj('error', 'openPage'))
         }
         break
       case 'getData':
@@ -127,25 +143,33 @@ let processer = async () => {
             return document.querySelector(xpath).innerHTML
           }, xpath)
           // await store.client.hset(data.id, 'getData', JSON.stringify({ [varible]: retData }))
-          await store.client.hset(data.id, data.feId, JSON.stringify({ [varible]: retData }))
+          await store.client.hset(data.id, data.feId,generateReturnObj(JSON.stringify({[varible]: retData }),'getData'))
           console.log(`finish getData ${varible} ${retData}`)
         }
         catch (err) {
-          await store.client.hset(data.id, data.feId, 'error')
+          await store.client.hset(data.id, data.feId,   generateReturnObj('error', 'getData'))
         }
         break
       case 'end':
         try {
           await currentPage.close()
           // await store.client.hset(data.id, 'end', 'success')
-          await store.client.hset(data.id, data.feId, 'success')
+          await store.client.hset(data.id, data.feId, generateReturnObj('success', 'end'))
           console.log(`finish end`)
         }
         catch(err){
-          await store.client.hset(data.id, data.feId, 'error')
+          await store.client.hset(data.id, data.feId,  generateReturnObj('error', 'end'))
         }
         break
     }
   }
+}
+
+generateReturnObj = (message, method)=>{
+  let orginObj = {}
+  orginObj.data = message
+  orginObj.time = new Date().Format("yyyy-MM-dd hh:mm:ss.S")
+  orginObj.method = method
+  return JSON.stringify(orginObj)
 }
 processer()
