@@ -17,10 +17,14 @@ let coreFunction = {
         return data
     },
     getData: async (params) => {
-        const { currentPage, xpath } = params
-        let data = await currentPage.evaluate((xpath) => {
-            return document.querySelector(xpath).innerText
-        }, xpath)
+        const { currentPage, xpath, key } = params
+        let actualKey = key?key: 'innerHTML'
+
+        let data = await currentPage.evaluate((xpath, actualKey) => {
+            let data = document.querySelectorAll(xpath)
+            let ret = [...data].map(item=>item[actualKey])
+             return ret
+        }, xpath, actualKey)
         return data
     },
     input: async (params) => {
@@ -28,6 +32,14 @@ let coreFunction = {
         let data = await currentPage.evaluate((xpath, value) => {
             return document.querySelector(xpath).value = value
         }, xpath, value)
+        return data
+    },
+    if: async(params)=> {
+        const { currentPage, value } = params
+        console.log('if', value)
+        let data = await currentPage.evaluate((value)=>{
+            return eval(value)
+        }, value)
         return data
     },
     click: async (params) => {
