@@ -50,14 +50,33 @@ let coreFunction = {
         return data
     },
     sleep: async (params) => {
-        const { currentPage, time } = params
+        const { time } = params
         await sleep(time)
-        // let data = await currentPage.evaluate((xpath) => {
-        //     return document.querySelector(xpath).click()
-        // }, xpath)
-
-        // return data
     },
+    evaluate: async(params)=> {
+        const { currentPage, myData, value} = params
+        let retMyData = await currentPage.evaluate((myData, value)=>{
+            if (!myData){
+                myData = myData
+            }
+            eval(value)
+            return myData
+        }, myData, value)
+        return retMyData
+    },
+    for: async(params) => {
+        const { currentPage, myData, validate, after} = params
+        console.log(validate, after)
+        let retMyData = await currentPage.evaluate((myData, validate, after)=>{
+            if (!myData){
+                myData = myData
+            }
+            let validateData = eval(validate)
+            eval(after)
+            return {status:validateData, myData}
+        }, myData, validate, after)
+        return retMyData
+    }
 }
 
 

@@ -54,7 +54,7 @@ router
     let ret = await store.client.hgetall(id)
     if (ret) {
       for (let item of Object.keys(ret)) {
-        ////console.log('getData', item)
+        //////console.log('getData', item)
         await store.client.hdel(id, item)
       }
       ctx.response.body = { data: ret }
@@ -79,48 +79,30 @@ let compiler = async () => {
     let data = await store.client.lpop('willCompile')
 
     if (data === null) {
-      console.log('compiler: willCompile is null, sleep 5s')
-      await sleep(1000)
+      await sleep(2000)
       continue
     }
-    const { nodes, connections, id, startStepId } = JSON.parse(data)
+    const { nodes, connections, id, startStepId, myData } = data =  JSON.parse(data)
+    data.repeated = false
     let startId = "start"
     if (startStepId) {
       startId = startStepId
     }
     let nodeObj = nodes
     let connectionObj = connections
-
-    // let nodeObj = nodes.reduce((before, current) => { before[current.id] = current; return before; }, {})
-    // let connectionObj = connections.reduce((before, current) => { before[current.sourceId] = current; return before; }, {})
-
+    let actualMyData = myData ? myData : {}
 
     await store.client.hset('origin' + id, 'nodes', JSON.stringify(nodeObj))
     await store.client.hset('origin' + id, 'connections', JSON.stringify(connectionObj))
-    // this.currentId = id
+    await store.client.hset('origin' + id, 'myData', JSON.stringify(actualMyData))
     let configData = []
-    ////console.log('startId', startId, JSON.stringify(connectionObj))
     let currentConnection = connectionObj[startId]
-    // delete nodeObj[currentConnection.sourceId].config.style
-
-    // nodeObj[currentConnection.sourceId].config.feId = nodeObj[currentConnection.sourceId].id
-    // nodeObj[currentConnection.sourceId].config.id = id
-    // configData.push(nodeObj[currentConnection.sourceId].config)
-    // await store.client.rpush('listtest', JSON.stringify(nodeObj[currentConnection.sourceId].config))
-    // let currentNode = nodeObj[startId]
-
-    // ////console.log(nodeObj, startId, currentNode)
-
-
     for (let currentNode = nodeObj[startId]; ;) {
-      ////console.log('currentNode', currentNode)
       if (currentNode.config.actualType === "if") {
-        // ////console.log("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-        // nextStartId = currentNode.config.feId
         if (currentNode.config.data.returnValue) {
           //执行了if的情况
           let returnValue = currentNode.config.data.returnValue
-          console.log(typeof returnValue)
+          //console.log(typeof returnValue)
           if (returnValue === 'true') {
             currentNode = nodeObj[currentConnection.true]
             currentConnection = connectionObj[currentConnection.true]
@@ -129,8 +111,6 @@ let compiler = async () => {
             currentConnection = connectionObj[currentConnection.false]
           }
           continue
-          // currentNode = nodeObj[currentConnection.false]
-          // currentConnection = connectionObj[currentConnection.false]
         } else {
           //未执行if的情况
           currentNode.config.id = id
@@ -140,6 +120,48 @@ let compiler = async () => {
           break
         }
       }
+
+      if (currentNode.config.actualType === "for") {
+        if (currentNode.config.data.returnValue) {
+          if (currentNode.config.data.returnValue === 'true') {
+            //true的情况
+
+
+            if(currentConnection.true === 'end'){
+              currentNode = nodeObj[currentConnection.true]
+              currentNode.config.id = id
+              currentNode.config.feId = currentNode.id
+              await store.client.rpush('listtest', JSON.stringify(currentNode.config))
+              break
+            }
+            currentNode = nodeObj[currentConnection.true]
+            currentConnection = connectionObj[currentConnection.true]
+            //不再把for放执行队列了
+            // continue
+          } else {
+            if(data.repeated){
+              //第二次到这一步 把自己放进去 然后跳出
+              currentNode.config.id = id
+              currentNode.config.feId = currentNode.id
+              configData.push(currentNode.config)
+              await store.client.rpush('listtest', JSON.stringify(currentNode.config))
+              break
+            }
+            currentNode = nodeObj[currentConnection.false]
+            currentConnection = connectionObj[currentConnection.false]
+            data.repeated = true
+            //false的情况
+          }
+        } else {
+          //第一次把for放进去
+          currentNode.config.id = id
+          currentNode.config.feId = currentNode.id
+          configData.push(currentNode.config)
+          await store.client.rpush('listtest', JSON.stringify(currentNode.config))
+          break
+        }
+      }
+
       if (currentConnection.targetId === "end") {
         currentNode.config.id = id
         currentNode.config.feId = currentNode.id
@@ -175,15 +197,14 @@ let processer = async () => {
   let currentPage = null
   while (true) {
     let data = await store.client.lpop('listtest')
-    // ////console.log(data)
+    // //////console.log(data)
     data = JSON.parse(data)
-    ////console.log('data', data)
     if (data === null) {
-      console.log('data is null, so sleep 5s')
-      await sleep(1000)
+      //console.log('data is null, so sleep 2s')
+      await sleep(2000)
       continue
     }
-    ////console.log(data.actualType)
+    //////console.log(data.actualType)
     switch ('actualType', data.actualType) {
       case 'start':
         try {
@@ -209,7 +230,8 @@ let processer = async () => {
 
         try {
           let xpath = data.data.xpath
-          let value = data.data.value
+          let value = await (translateValue(data.id, data.data.value))
+          //console.log('input', value)
           let ret = await core('input', { currentPage, xpath, value })
           //todo:打开失败的判断
           await store.client.hset(data.id, data.feId, generateReturnObj('success', 'input'))
@@ -248,7 +270,7 @@ let processer = async () => {
           let varible = data.data.varible
           let key = data.data.key
           let retData = await core('getData', { currentPage, xpath, key })
-          console.log('getData', retData)
+          //console.log('getData', retData)
           await store.client.hset(data.id, data.feId, generateReturnObj(JSON.stringify({ [varible]: retData }), 'getData'))
         }
         catch (err) {
@@ -271,23 +293,61 @@ let processer = async () => {
           let value = data.data.value
           // let 
           let ret = await core('if', { currentPage, value })
-          console.log(typeof ret)
+          //console.log(typeof ret)
           await store.client.hset(data.id, data.feId, generateReturnObj(JSON.stringify(ret), 'if'))
 
           //重新推到waitCompile队列
           let orginNodes = JSON.parse(await store.client.hget('origin' + data.id, 'nodes'))
           let originConnections = JSON.parse(await store.client.hget('origin' + data.id, 'connections'))
-          // //console.log('orginNodes', JSON.stringify(orginNodes, null,4), data.feId, ret, orginNodes[data.feId])
+          let originMydata = JSON.parse(await store.client.hget('origin' + data.id, 'myData'))
+          // ////console.log('orginNodes', JSON.stringify(orginNodes, null,4), data.feId, ret, orginNodes[data.feId])
           orginNodes[data.feId]['config']['data']['returnValue'] = (!!ret).toString()
           await store.client.hset('origin' + data.id, 'nodes', JSON.stringify(orginNodes))
-          await store.client.rpush('willCompile', JSON.stringify({ nodes: orginNodes, connections: originConnections, startStepId: data.feId, id: data.id }))
+          await store.client.rpush('willCompile', JSON.stringify({ nodes: orginNodes, connections: originConnections, startStepId: data.feId, id: data.id, myData: originMydata }))
         }
         catch (err) {
           await store.client.hset(data.id, data.feId, generateReturnObj(err.toString(), 'if'))
         }
-    }
+        break
+      case 'for':
+        try {
+          let validate = data.data.value
+          let after = data.data.after
+          let myData = JSON.parse(await store.client.hget('origin' + data.id, 'myData'))
 
-    await sleep(1000)
+          let ret = await core('for', { currentPage, validate, after, myData })
+          await store.client.hset(data.id, data.feId, generateReturnObj(JSON.stringify(ret), 'for'))
+          // 重新推到waitCompile队列
+          let orginNodes = JSON.parse(await store.client.hget('origin' + data.id, 'nodes'))
+          let originConnections = JSON.parse(await store.client.hget('origin' + data.id, 'connections'))
+          //修改originProps的数据
+          orginNodes[data.feId]['config']['data']['returnValue'] = (!!ret.status).toString()
+          await store.client.hset('origin' + data.id, 'nodes', JSON.stringify(orginNodes))
+          //重新进入willCompile队列
+          await store.client.rpush('willCompile', JSON.stringify({ nodes: orginNodes, connections: originConnections, startStepId: data.feId, id: data.id, myData: ret.myData }))
+
+        } catch (err) {
+          await store.client.hset(data.id, data.feId, generateReturnObj(err.toString(), 'for'))
+        }
+        break
+      case 'evaluate':
+        try {
+          let value = data.data.value
+          let myData = JSON.parse(await store.client.hget('origin' + data.id, 'myData'))
+          let newMyData = await core('evaluate', { currentPage, myData, value })
+          // await store.client.hset('origin' + data.id, 'myData', JSON.stringify(newMyData))
+          await store.client.hset('origin' + data.id, 'myData', JSON.stringify(newMyData))
+
+          await store.client.hset(data.id, data.feId, generateReturnObj(JSON.stringify(newMyData), 'evaluate'))
+
+          //console.log('newMyData', newMyData)
+        } catch (err) {
+          await store.client.hset(data.id, data.feId, generateReturnObj(err.toString(), 'evaluate'))
+        }
+        break
+    }
+    //减速测试
+    // await sleep(1000)
 
   }
 }
@@ -300,15 +360,38 @@ generateReturnObj = (message, method) => {
   return JSON.stringify(orginObj)
 }
 
-if (cluster.isMaster) {
-  app.listen(7000);
-  compiler()
-  cluster.fork()
-} else {
-  processer()
-
+translateValue = async (id, string) => {
+  const originMydata = JSON.parse(await store.client.hget('origin' + id, 'myData'))
+  console.log('originMydata', originMydata)
+  // //console.log('originMydata', originMydata)
+  const reg1 = /\$\{(.+?)\}/g
+  const reg2 = /[^\{\}]+(?=\})/g
+  let retString = string
+  let translateArr = string.match(reg1)
+  if (translateArr && Array.isArray(translateArr)) {
+    translateArr.forEach(item => {
+      let key = item.match(reg2)[0]
+      if (typeof originMydata[key]!=='undefined') {
+        // //console.log("@@@@@@@@@@@@@")
+        retString = retString.replace(item, originMydata[key])
+      }
+    })
+  }
+  return retString
 }
 
-// app.listen(7000);
-// processer()
-// compiler()
+
+// if (cluster.isMaster) {
+//   app.listen(7000);
+//   compiler()
+//   cluster.fork()
+// } else {
+//   processer()
+
+// }
+
+
+
+app.listen(7000);
+processer()
+compiler()
