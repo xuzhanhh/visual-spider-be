@@ -82,7 +82,7 @@ let compiler = async () => {
       await sleep(2000)
       continue
     }
-    const { nodes, connections, id, startStepId, myData } = data =  JSON.parse(data)
+    const { nodes, connections, id, startStepId, myData } = data = JSON.parse(data)
     data.repeated = false
     let startId = "start"
     if (startStepId) {
@@ -127,7 +127,7 @@ let compiler = async () => {
             //true的情况
 
 
-            if(currentConnection.true === 'end'){
+            if (currentConnection.true === 'end') {
               currentNode = nodeObj[currentConnection.true]
               currentNode.config.id = id
               currentNode.config.feId = currentNode.id
@@ -139,7 +139,7 @@ let compiler = async () => {
             //不再把for放执行队列了
             // continue
           } else {
-            if(data.repeated){
+            if (data.repeated) {
               //第二次到这一步 把自己放进去 然后跳出
               currentNode.config.id = id
               currentNode.config.feId = currentNode.id
@@ -197,84 +197,86 @@ let processer = async () => {
   let currentPage = null
   while (true) {
     let data = await store.client.lpop('listtest')
-    // //////console.log(data)
+    let after = await store.client.lindex('listtest', 0)
+    let afterFeId = ""
+    if (after) {
+      afterFeId = JSON.parse(after).feId
+    }
     data = JSON.parse(data)
     if (data === null) {
-      //console.log('data is null, so sleep 2s')
       await sleep(2000)
       continue
     }
-    //////console.log(data.actualType)
     switch ('actualType', data.actualType) {
       case 'start':
         try {
           currentPage = await browser.newPage();
           // await store.client.hset(data.id, 'start', 'success')
-          await store.client.hset(data.id, data.feId, generateReturnObj('success', 'start'))
+          await store.client.hset(data.id, data.feId, generateReturnObj('success', 'start', afterFeId))
         }
         catch (err) {
-          await store.client.hset(data.id, data.feId, generateReturnObj(err.toString(), 'start'))
+          await store.client.hset(data.id, data.feId, generateReturnObj(err.toString(), 'start', afterFeId))
         }
         break
       case 'openPage':
         try {
-          let ret = await core('openPage', { currentPage, url: data.data.url })
+          let ret = await core('openPage', { currentPage, url: data.data.url.data })
           //todo:打开失败的判断
-          await store.client.hset(data.id, data.feId, generateReturnObj('success', 'openPage'))
+          await store.client.hset(data.id, data.feId, generateReturnObj('success', 'openPage', afterFeId))
         }
         catch (err) {
-          await store.client.hset(data.id, data.feId, generateReturnObj(err.toString(), 'openPage'))
+          await store.client.hset(data.id, data.feId, generateReturnObj(err.toString(), 'openPage', afterFeId))
         }
         break
       case 'input':
 
         try {
-          let xpath = data.data.xpath
-          let value = await (translateValue(data.id, data.data.value))
+          let xpath = data.data.xpath.data
+          let value = await (translateValue(data.id, data.data.value.data))
           //console.log('input', value)
           let ret = await core('input', { currentPage, xpath, value })
           //todo:打开失败的判断
-          await store.client.hset(data.id, data.feId, generateReturnObj('success', 'input'))
+          await store.client.hset(data.id, data.feId, generateReturnObj('success', 'input', afterFeId))
         }
         catch (err) {
-          await store.client.hset(data.id, data.feId, generateReturnObj(err.toString(), 'input'))
+          await store.client.hset(data.id, data.feId, generateReturnObj(err.toString(), 'input', afterFeId))
         }
         break
       case 'sleep':
 
         try {
-          let time = data.data.time
+          let time = data.data.time.data
           let ret = await core('sleep', { currentPage, time })
           //todo:打开失败的判断
-          await store.client.hset(data.id, data.feId, generateReturnObj('success', 'sleep'))
+          await store.client.hset(data.id, data.feId, generateReturnObj('success', 'sleep', afterFeId))
         }
         catch (err) {
-          await store.client.hset(data.id, data.feId, generateReturnObj(err.toString(), 'sleep'))
+          await store.client.hset(data.id, data.feId, generateReturnObj(err.toString(), 'sleep', afterFeId))
         }
         break
       case 'click':
         try {
-          let xpath = data.data.xpath
+          let xpath = data.data.xpath.data
 
           let ret = await core('click', { currentPage, xpath })
           //todo:打开失败的判断
-          await store.client.hset(data.id, data.feId, generateReturnObj('success', 'click'))
+          await store.client.hset(data.id, data.feId, generateReturnObj('success', 'click', afterFeId))
         }
         catch (err) {
-          await store.client.hset(data.id, data.feId, generateReturnObj(err.toString(), 'click'))
+          await store.client.hset(data.id, data.feId, generateReturnObj(err.toString(), 'click', afterFeId))
         }
         break
       case 'getData':
         try {
-          let xpath = data.data.xpath
-          let varible = data.data.varible
-          let key = data.data.key
+          let xpath = data.data.xpath.data
+          let varible = data.data.varible.data
+          let key = data.data.key.data
           let retData = await core('getData', { currentPage, xpath, key })
           //console.log('getData', retData)
-          await store.client.hset(data.id, data.feId, generateReturnObj(JSON.stringify({ [varible]: retData }), 'getData'))
+          await store.client.hset(data.id, data.feId, generateReturnObj(JSON.stringify({ [varible]: retData }), 'getData', afterFeId))
         }
         catch (err) {
-          await store.client.hset(data.id, data.feId, generateReturnObj(err.toString(), 'getData'))
+          await store.client.hset(data.id, data.feId, generateReturnObj(err.toString(), 'getData', afterFeId))
         }
         break
       case 'end':
@@ -282,19 +284,19 @@ let processer = async () => {
           // await currentPage.close()
           await core('end', { currentPage })
           // await store.client.hset(data.id, 'end', 'success')
-          await store.client.hset(data.id, data.feId, generateReturnObj('success', 'end'))
+          await store.client.hset(data.id, data.feId, generateReturnObj('success', 'end', afterFeId))
         }
         catch (err) {
-          await store.client.hset(data.id, data.feId, generateReturnObj(err.toString(), 'end'))
+          await store.client.hset(data.id, data.feId, generateReturnObj(err.toString(), 'end', afterFeId))
         }
         break
       case 'if':
         try {
-          let value = data.data.value
+          let value = data.data.value.data
           // let 
           let ret = await core('if', { currentPage, value })
           //console.log(typeof ret)
-          await store.client.hset(data.id, data.feId, generateReturnObj(JSON.stringify(ret), 'if'))
+          await store.client.hset(data.id, data.feId, generateReturnObj(JSON.stringify(ret), 'if', afterFeId))
 
           //重新推到waitCompile队列
           let orginNodes = JSON.parse(await store.client.hget('origin' + data.id, 'nodes'))
@@ -306,17 +308,17 @@ let processer = async () => {
           await store.client.rpush('willCompile', JSON.stringify({ nodes: orginNodes, connections: originConnections, startStepId: data.feId, id: data.id, myData: originMydata }))
         }
         catch (err) {
-          await store.client.hset(data.id, data.feId, generateReturnObj(err.toString(), 'if'))
+          await store.client.hset(data.id, data.feId, generateReturnObj(err.toString(), 'if', afterFeId))
         }
         break
       case 'for':
         try {
-          let validate = data.data.value
-          let after = data.data.after
+          let validate = data.data.value.data
+          let after = data.data.after.data
           let myData = JSON.parse(await store.client.hget('origin' + data.id, 'myData'))
 
           let ret = await core('for', { currentPage, validate, after, myData })
-          await store.client.hset(data.id, data.feId, generateReturnObj(JSON.stringify(ret), 'for'))
+          await store.client.hset(data.id, data.feId, generateReturnObj(JSON.stringify(ret), 'for', afterFeId))
           // 重新推到waitCompile队列
           let orginNodes = JSON.parse(await store.client.hget('origin' + data.id, 'nodes'))
           let originConnections = JSON.parse(await store.client.hget('origin' + data.id, 'connections'))
@@ -327,42 +329,42 @@ let processer = async () => {
           await store.client.rpush('willCompile', JSON.stringify({ nodes: orginNodes, connections: originConnections, startStepId: data.feId, id: data.id, myData: ret.myData }))
 
         } catch (err) {
-          await store.client.hset(data.id, data.feId, generateReturnObj(err.toString(), 'for'))
+          await store.client.hset(data.id, data.feId, generateReturnObj(err.toString(), 'for', afterFeId))
         }
         break
       case 'evaluate':
         try {
-          let value = data.data.value
+          let value = data.data.value.data
           let myData = JSON.parse(await store.client.hget('origin' + data.id, 'myData'))
           let newMyData = await core('evaluate', { currentPage, myData, value })
           // await store.client.hset('origin' + data.id, 'myData', JSON.stringify(newMyData))
           await store.client.hset('origin' + data.id, 'myData', JSON.stringify(newMyData))
 
-          await store.client.hset(data.id, data.feId, generateReturnObj(JSON.stringify(newMyData), 'evaluate'))
+          await store.client.hset(data.id, data.feId, generateReturnObj(JSON.stringify(newMyData), 'evaluate', afterFeId))
 
           //console.log('newMyData', newMyData)
         } catch (err) {
-          await store.client.hset(data.id, data.feId, generateReturnObj(err.toString(), 'evaluate'))
+          await store.client.hset(data.id, data.feId, generateReturnObj(err.toString(), 'evaluate', afterFeId))
         }
         break
     }
     //减速测试
-    // await sleep(1000)
+    await sleep(1000)
 
   }
 }
 
-generateReturnObj = (message, method) => {
+generateReturnObj = (message, method, afterFeId) => {
   let orginObj = {}
   orginObj.data = message
   orginObj.time = new Date().Format("yyyy-MM-dd hh:mm:ss.S")
   orginObj.method = method
+  orginObj.afterFeId = afterFeId
   return JSON.stringify(orginObj)
 }
 
 translateValue = async (id, string) => {
   const originMydata = JSON.parse(await store.client.hget('origin' + id, 'myData'))
-  console.log('originMydata', originMydata)
   // //console.log('originMydata', originMydata)
   const reg1 = /\$\{(.+?)\}/g
   const reg2 = /[^\{\}]+(?=\})/g
@@ -371,7 +373,7 @@ translateValue = async (id, string) => {
   if (translateArr && Array.isArray(translateArr)) {
     translateArr.forEach(item => {
       let key = item.match(reg2)[0]
-      if (typeof originMydata[key]!=='undefined') {
+      if (typeof originMydata[key] !== 'undefined') {
         // //console.log("@@@@@@@@@@@@@")
         retString = retString.replace(item, originMydata[key])
       }
